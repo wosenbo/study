@@ -51,6 +51,8 @@ class ShuMei():
         self.register_url = "https://captcha.fengkongcloud.com/ca/v1/register"
         self.fverify_url = "https://captcha.fengkongcloud.com/ca/v2/fverify"
         self.img_url = "https://castatic.fengkongcloud.com"
+        self.organization = self.get_organization()
+        self.js_url = self.captcha_js()
         self.header = {
             'Accept': '*/*',
             'Accept-Encoding': 'gzip, deflate, br',
@@ -73,7 +75,7 @@ class ShuMei():
         res = requests.get(url, headers={
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/87.0.4280.88 Safari/537.36'})
         organization = re.search('organization:"(.*?)"', res.text).group(1)
-        print(f"organization:{organization}")
+        # print(f"organization:{organization}")
         return organization
 
     def get_register_data(self):
@@ -86,12 +88,12 @@ class ShuMei():
             'data': '{}',
             'appId': 'default',
             'callback': f'sm_{int((time.time())*1000)}',
-            'organization': 'RlokQwRlVjUrTUlkIqOg',
+            'organization': self.organization,
         }
         res = requests.get(url=self.register_url, headers=self.header, params=data)
         register_data = re.search("sm_\d+\((.*?)\)", res.text).group(1)
         register_data = json.loads(register_data)
-        print(register_data)
+        # print(register_data)
         return register_data['detail']
 
     def save_img(self,img_urls):
@@ -99,10 +101,10 @@ class ShuMei():
         for i in range(2):
 
             res = requests.get(self.img_url + img_urls[i])
-            print(self.img_url + img_urls[i])
+            # print(self.img_url + img_urls[i])
             with open(self.imgs_path[i],'wb',) as f_wb:
                 f_wb.write(res.content)
-                print(f'{self.imgs_path[i]}图已保存')
+                # print(f'{self.imgs_path[i]}图已保存')
 
     def img_distance(self):
         target = self.imgs_path[0]
@@ -113,7 +115,7 @@ class ShuMei():
         res = cv2.matchTemplate(target_gray, template_rgb, cv2.TM_CCOEFF_NORMED)
         value = cv2.minMaxLoc(res)
         distance = value[3][0] + 7
-        print(f"滑块距离：{distance/2}")
+        # print(f"滑块距离：{distance/2}")
         return int(distance/2)
 
     def generate_trajectory(self,dis):
@@ -136,19 +138,26 @@ class ShuMei():
             else:
                 tra_list.append([dis,y,t])
                 break
-        print(f"轨迹数组:{tra_list}")
+        # print(f"轨迹数组:{tra_list}")
         return tra_list
 
+    def captcha_js(self):
+        url = f"https://captcha.fengkongcloud.com/ca/v1/conf?sdkver=1.1.3&organization={self.organization}&appId=default&rversion=1.0.3&lang=zh-cn&channel=DEFAULT&callback=sm_{int(time.time() * 1000)}&model=slide"
+        res = requests.get(url).text
+
+        js_url = "https://castatic.fengkongcloud.com" + re.search('"js":"(.*?)"}', res).group(1)
+        return js_url
+
     def get_par_name(self):
-        url = "https://castatic.fengkongcloud.com/pr/auto-build/v1.0.3-66/captcha-sdk.min.js"
-        res = requests.get(url,).text
-        par_names = re.search("_0x402c\('0x3fd'\),(.*?)'gifnoc_",res).group(1)
-        par_name = par_names.split(',')
-        del par_name[3]
-        del par_name[-1]
-        print(par_name)
-        par_name = [i.replace("'",'',2)[::-1] for i in par_name]
-        print('参数:',par_name)
+        html_js = requests.get(self.js_url).text
+        list_ = html_js.split(",'}", maxsplit=1)[-1].split(',')
+        # print('list', list_)
+        key_list = []
+        for i in list_:
+            if '0x' not in i and 4 <= len(i) <= 5:
+                key_list.append(i.replace("'", '')[::-1])
+        par_name = key_list[0:13]
+        # print('参数:',par_name)
         return par_name
 
     def get_ver_params(self, img_urls):
@@ -157,40 +166,26 @@ class ShuMei():
         trajectory = self.generate_trajectory(distance)
         par_name = self.get_par_name()
         ver_params = {
-            par_name[3]: distance / 300,
-            par_name[4]: trajectory,
-            par_name[5]: random.randint(2700, 3500),
-            par_name[6]: 300,
-            par_name[7]: 150,
-            par_name[8]: "web_pc",
+            par_name[4]: distance / 300,
+            par_name[5]: trajectory,
+            par_name[6]: random.randint(2700, 3500),
+            par_name[7]: 300,
+            par_name[8]: 150,
             par_name[9]: 1,
             par_name[10]: 0,
             par_name[11]: -1,
+            'protocol': par_name[12],
             par_name[0]: 'default',
             par_name[1]: 'DEFAULT',
             par_name[2]: 'zh-cn',
         }
-        # ver_params = {
-        #     'an': distance / 300,
-        #     'ln': trajectory,
-        #     'mq': random.randint(2700, 3500),
-        #     'sg': 300,
-        #     'pr': 150,
-        #     'act.os': "web_pc",
-        #     'kh': 1,
-        #     'xm': 0,
-        #     'xs': -1,
-        #     'ta': 'default',
-        #     'tq': 'DEFAULT',
-        #     'va': 'zh-cn',
-        # }
-        print(f"ver_params:{ver_params}")
+        # print(f"ver_params:{ver_params}")
         return ver_params
 
     def enc_params(self,key,params):
         enc_param=dict()
         for i,j in params.items():
-            if i == 'act.os':
+            if i == 'act.os' or i == 'protocol':
                 enc_param[i] = j
             else:
                 enc_param[i] = des_res(key,str(j))
@@ -202,12 +197,13 @@ class ShuMei():
         img_urls = [data['bg'], data['fg']]
         self.save_img(img_urls)
         rid = data['rid']
-        organization = self.get_organization()
+        # organization = self.get_organization()
+        organization = self.organization
         ostype = 'web'
         callback = 'sm_1610006760346'
         sdkver = '1.1.3'
         rversion = '1.0.3'
-        protocol = '66'
+        protocol = '68'
         params = self.get_ver_params(img_urls)
         params = self.enc_params(key,params)
 
@@ -218,9 +214,10 @@ class ShuMei():
             'callback': callback,
             'sdkver': sdkver,
             'rversion': rversion,
-            'protocol': protocol,
+
+            'atc.os': "web_pc",
         })
-        print(f"params:{params}")
+        # print(f"params:{params}")
         return params
 
     def get_index(self):
@@ -231,4 +228,5 @@ class ShuMei():
 
 if __name__ == '__main__':
     shumei = ShuMei()
-    shumei.get_index()
+    for i in range(10):
+        res = shumei.get_index()
